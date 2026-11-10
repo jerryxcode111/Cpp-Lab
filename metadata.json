@@ -1,6 +1,6 @@
 {
   "name": "cpplab.tech",
-  "description": "Master C++. Zero Distractions. A dedicated, split-screen coding environment for C++ students and developers.",
+  "description": "The Modern Workspace for C++ Developers. A focused, split-screen C++ coding environment. Launching soon.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

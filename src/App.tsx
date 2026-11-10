@@ -6,18 +6,18 @@ export default function App() {
   const [submitted, setSubmitted] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState('');
   const [error, setError] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim();
     if (!cleanEmail) {
-      setError('Please enter your email address.');
+      setError('Please enter your email.');
       return;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(cleanEmail)) {
-      setError('Please enter a valid email address.');
+      setError('Please enter a valid email.');
       return;
     }
 
@@ -33,9 +33,9 @@ export default function App() {
         },
         body: JSON.stringify({
           email: cleanEmail,
-          _subject: 'New Waitlist Subscriber — cpplab.tech',
+          _subject: 'Waitlist signup — cpplab.tech',
           _template: 'table',
-          source: 'cpplab.tech landing page'
+          _captcha: 'false'
         })
       });
 
@@ -46,13 +46,12 @@ export default function App() {
           localStorage.setItem('cpplab_waitlist', JSON.stringify(stored));
         }
       } catch {
-        // LocalStorage fallback
+        // Fallback
       }
 
       setSubmittedEmail(cleanEmail);
       setSubmitted(true);
     } catch {
-      // In case of network blocker or CORS, accept locally
       setSubmittedEmail(cleanEmail);
       setSubmitted(true);
     } finally {
@@ -60,57 +59,59 @@ export default function App() {
     }
   };
 
-  const sampleCppCode = `#include <iostream>
-#include <memory>
+  const codeSnippet = `#include <iostream>
 #include <string_view>
 
 int main() {
-    // Modern C++: expressive, typed, and uncompromisingly fast
-    constexpr std::string_view status = "cpplab::ready";
-    std::cout << status << std::endl;
+    constexpr std::string_view env = "cpplab ready";
+    std::cout << env << '\\n';
     return 0;
 }`;
 
-  const copyCode = () => {
-    navigator.clipboard.writeText(sampleCppCode);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(codeSnippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="min-h-screen bg-[#121212] text-[#ededed] flex flex-col justify-between selection:bg-[#ededed] selection:text-[#121212]">
-      {/* Top Header */}
-      <header className="w-full border-b border-[#27272a] bg-[#121212]">
-        <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="font-mono text-[15px] font-semibold tracking-tight text-[#ededed]">
+    <div className="min-h-screen bg-[#0d0d0d] text-[#ededed] font-sans flex flex-col justify-between selection:bg-[#ffffff] selection:text-[#000000]">
+      {/* Top Bar */}
+      <header className="w-full border-b border-[#222222]">
+        <div className="max-w-3xl mx-auto px-6 h-14 flex items-center justify-between">
+          <span className="font-mono text-sm tracking-tight font-medium text-[#ededed]">
             cpplab.tech
           </span>
-          <span className="font-mono text-xs text-[#a1a1aa] tracking-tight">
-            exclusively for c++
+          <span className="font-mono text-xs text-[#666666]">
+            c++ environment
           </span>
         </div>
       </header>
 
-      {/* Main Centered Content */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-6 py-16 md:py-24 flex flex-col items-center">
-        {/* Hero Section */}
-        <div className="text-center max-w-2xl mx-auto mb-16">
-          <p className="font-mono text-xs text-[#a1a1aa] mb-5 tracking-[0.16em] uppercase font-medium">
-            A dedicated workspace built exclusively for C++
-          </p>
-
-          <h1 className="text-3xl sm:text-4xl md:text-[46px] font-bold tracking-tight text-[#ededed] mb-6 leading-[1.18]">
-            A dedicated workspace for C++ programmers.
+      {/* Main Teaser */}
+      <main className="flex-1 max-w-3xl w-full mx-auto px-6 py-16 md:py-24 flex flex-col items-center justify-center">
+        {/* Hero */}
+        <div className="text-center w-full mb-12">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-[#ededed] mb-3 leading-tight">
+            The modern workspace for C++ developers.
           </h1>
 
-          <p className="text-base sm:text-lg text-[#a1a1aa] leading-relaxed mb-10 max-w-xl mx-auto">
-            We're building a focused, split-screen coding platform designed specifically for students and engineers to write, debug, and master modern C++ — from core syntax and object-oriented design to memory management, templates, and STL algorithms, with none of the clutter from multi-language tools.
+          <p className="text-base text-[#888888] mb-8 font-normal">
+            A focused, split-screen coding environment. Launching soon.
           </p>
 
-          {/* Early Access Action */}
-          <div className="max-w-md mx-auto w-full">
+          {/* Form */}
+          <div className="max-w-sm mx-auto w-full">
             {!submitted ? (
-              <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2">
+              <form
+                action="https://formsubmit.co/contact@j-dev.me"
+                method="POST"
+                onSubmit={handleSubmit}
+                className="flex gap-2"
+              >
+                <input type="hidden" name="_captcha" value="false" />
+                <input type="hidden" name="_subject" value="Waitlist signup — cpplab.tech" />
+                <input type="hidden" name="_template" value="table" />
                 <input
                   type="email"
                   name="email"
@@ -119,36 +120,22 @@ int main() {
                     setEmail(e.target.value);
                     if (error) setError('');
                   }}
-                  placeholder="Enter your email address"
+                  placeholder="your.email@example.com"
                   required
-                  className="flex-1 h-11 px-4 bg-[#18181b] border border-[#27272a] rounded text-sm text-[#ededed] placeholder-[#71717a] focus:outline-none focus:border-[#ededed] transition-colors"
+                  className="flex-1 h-10 px-3.5 bg-[#141414] border border-[#262626] rounded text-sm text-[#ededed] placeholder-[#555555] focus:outline-none focus:border-[#ededed] transition-colors font-mono text-xs"
                 />
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="h-11 px-6 bg-[#ffffff] hover:bg-[#e4e4e7] disabled:opacity-50 text-[#000000] font-semibold text-sm rounded transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center"
+                  className="h-10 px-4 bg-[#ededed] hover:bg-[#ffffff] disabled:opacity-50 text-[#000000] font-medium text-xs rounded transition-colors whitespace-nowrap cursor-pointer"
                 >
-                  {isSubmitting ? 'Sending...' : 'Notify Me'}
+                  {isSubmitting ? '...' : 'Notify Me'}
                 </button>
               </form>
             ) : (
-              <div className="bg-[#18181b] border border-[#27272a] p-4 rounded text-left">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs text-[#22c55e] font-semibold">
-                    ✓ You're on the list
-                  </span>
-                  <button
-                    onClick={() => {
-                      setSubmitted(false);
-                      setEmail('');
-                    }}
-                    className="text-xs text-[#a1a1aa] hover:text-[#ededed] font-mono cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                </div>
-                <p className="text-sm text-[#ededed] font-mono">
-                  We've recorded <span className="text-white font-medium">{submittedEmail}</span> and directed your signup to contact@j-dev.me.
+              <div className="bg-[#141414] border border-[#262626] py-2.5 px-4 rounded text-center">
+                <p className="text-xs font-mono text-[#ededed]">
+                  ✓ Reserved for <span className="text-[#22c55e]">{submittedEmail}</span>
                 </p>
               </div>
             )}
@@ -159,83 +146,59 @@ int main() {
               </p>
             )}
 
-            <p className="text-xs text-[#71717a] text-center mt-3 font-mono">
-              Launching soon. Enter your email to get notified first.
+            <p className="text-[11px] text-[#555555] text-center mt-2 font-mono">
+              No spam. Early updates only.
             </p>
           </div>
         </div>
 
-        {/* Core Highlights */}
-        <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
-          <div className="border-t border-[#27272a] pt-4">
-            <div className="font-mono text-xs text-[#71717a] mb-2 font-medium">01.</div>
-            <h2 className="text-base font-semibold text-[#ededed] mb-2">Split-Screen Layout</h2>
-            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-              Problem statement on the left, full C++ editor on the right. Built for uninterrupted focus and immediate compiler validation.
-            </p>
-          </div>
-
-          <div className="border-t border-[#27272a] pt-4">
-            <div className="font-mono text-xs text-[#71717a] mb-2 font-medium">02.</div>
-            <h2 className="text-base font-semibold text-[#ededed] mb-2">Pure C++ Focus</h2>
-            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-              Tailored exclusively for C++. Master pointers, references, RAII, memory management, templates, and STL algorithms in an environment calibrated solely for real C++ code.
-            </p>
-          </div>
-
-          <div className="border-t border-[#27272a] pt-4">
-            <div className="font-mono text-xs text-[#71717a] mb-2 font-medium">03.</div>
-            <h2 className="text-base font-semibold text-[#ededed] mb-2">Concept Verification</h2>
-            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-              Automated checks and compiler diagnostics engineered for C++ programs. Catch memory leaks, undefined behavior, and subtle boundary issues before they compile.
-            </p>
-          </div>
-        </div>
-
-        {/* Split-Screen Code Preview */}
-        <div className="w-full border border-[#27272a] bg-[#18181b] rounded overflow-hidden">
-          <div className="bg-[#121212] border-b border-[#27272a] px-4 py-2.5 flex items-center justify-between text-xs font-mono text-[#a1a1aa]">
-            <span className="text-[#ededed]">preview // c++ split-screen environment</span>
+        {/* Minimal Split Code Frame */}
+        <div className="w-full border border-[#222222] bg-[#111111] rounded overflow-hidden">
+          <div className="bg-[#0d0d0d] border-b border-[#222222] px-4 py-2 flex items-center justify-between text-xs font-mono text-[#666666]">
+            <div className="flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-[#262626]"></span>
+              <span className="w-2 h-2 rounded-full bg-[#262626]"></span>
+              <span className="w-2 h-2 rounded-full bg-[#262626]"></span>
+              <span className="text-[#888888] ml-2">cpplab // preview</span>
+            </div>
             <button
-              onClick={copyCode}
-              className="text-[#a1a1aa] hover:text-[#ededed] transition-colors cursor-pointer"
+              onClick={handleCopy}
+              className="text-[#666666] hover:text-[#ededed] transition-colors cursor-pointer"
             >
-              {isCopied ? '[ Copied ]' : '[ Copy snippet ]'}
+              {copied ? 'copied' : 'copy'}
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2">
-            {/* Left: Problem statement */}
-            <div className="p-6 border-b md:border-b-0 md:border-r border-[#27272a] bg-[#121212]">
-              <p className="font-mono text-xs text-[#a1a1aa] mb-2">Problem Statement</p>
-              <h3 className="text-sm font-semibold text-[#ededed] mb-2">
-                Standard Streams & Resource Management
-              </h3>
-              <p className="text-xs text-[#a1a1aa] leading-relaxed mb-6">
-                Practice deterministic memory and stream management using modern C++ abstractions and standard library facilities.
-              </p>
-              <div className="font-mono text-xs text-[#71717a]">
-                Expected output: <span className="text-[#ededed]">cpplab::ready</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 text-xs font-mono">
+            {/* Left: Spec */}
+            <div className="p-5 border-b md:border-b-0 md:border-r border-[#222222] bg-[#0f0f0f] text-[#888888] flex flex-col justify-between">
+              <div>
+                <div className="text-[#555555] mb-2">// problem</div>
+                <div className="text-[#ededed] font-medium mb-1">01. Standard Stream</div>
+                <div className="text-[#666666] text-[11px] leading-relaxed mb-4">
+                  Print the status flag using std::string_view with zero heap overhead.
+                </div>
+              </div>
+              <div className="text-[11px] text-[#555555]">
+                target: <span className="text-[#22c55e]">cpplab ready</span>
               </div>
             </div>
 
-            {/* Right: Code editor */}
-            <div className="p-6 bg-[#18181b] font-mono text-xs">
-              <div className="flex justify-between items-center mb-3 text-[#71717a]">
-                <span>solution.cpp</span>
-                <span>C++20</span>
+            {/* Right: Code */}
+            <div className="p-5 bg-[#121212] overflow-x-auto">
+              <div className="text-[#555555] mb-2 flex justify-between">
+                <span>main.cpp</span>
+                <span>c++20</span>
               </div>
-              <pre className="text-[#ededed] leading-5 overflow-x-auto">
+              <pre className="text-[#ededed] leading-5">
 {`1  #include <iostream>
-2  #include <memory>
-3  #include <string_view>
-4  
-5  int main() {
-6      // Modern C++: expressive, typed, and direct
-7      constexpr std::string_view status = "cpplab::ready";
-8      std::cout << status << std::endl;
-9      return 0;
-10 }`}
+2  #include <string_view>
+3  
+4  int main() {
+5      constexpr std::string_view env = "cpplab ready";
+6      std::cout << env << '\\n';
+7      return 0;
+8  }`}
               </pre>
             </div>
           </div>
@@ -243,14 +206,10 @@ int main() {
       </main>
 
       {/* Footer */}
-      <footer className="w-full border-t border-[#27272a] bg-[#121212] py-8">
-        <div className="max-w-4xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs text-[#71717a]">
-          <div>
-            © 2026 cpplab.tech • Handcrafted for C++ programmers.
-          </div>
-          <div>
-            Exclusively dedicated to modern C++ development.
-          </div>
+      <footer className="w-full border-t border-[#222222] py-5">
+        <div className="max-w-3xl mx-auto px-6 flex items-center justify-between text-xs font-mono text-[#555555]">
+          <span>© 2026 cpplab.tech</span>
+          <span>built for c++ developers</span>
         </div>
       </footer>
     </div>
