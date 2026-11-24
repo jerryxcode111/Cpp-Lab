@@ -1,6 +1,6 @@
 {
   "name": "cpplab.tech",
-  "description": "The Modern Workspace for C++ Developers. A focused, split-screen C++ coding environment. Launching soon.",
+  "description": "Free Online C++ Compiler & Runner. Write, compile, and run modern C++11 to C++23 code online with GCC 14, stdin support, and memory sanitizer checks.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
