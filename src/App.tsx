@@ -43,6 +43,21 @@ function parseLearnHash(): string | null {
   return null;
 }
 
+function parseSharedQueryId(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('s');
+    if (id && /^[A-Za-z0-9_-]{4,32}$/.test(id)) return id;
+    if (window.location.hash.startsWith('#s=')) {
+      const hashId = decodeURIComponent(window.location.hash.slice('#s='.length));
+      if (/^[A-Za-z0-9_-]{4,32}$/.test(hashId)) return hashId;
+    }
+  } catch {
+    // Ignore URL parse error
+  }
+  return null;
+}
+
 export default function App() {
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
@@ -66,8 +81,18 @@ export default function App() {
     const shared = decodeSnippetFromHash();
     return shared ? shared.standard : 'c++20';
   });
-  const [stdin, setStdin] = useState<string>('');
-  const [loadedTopicName, setLoadedTopicName] = useState<string | null>(null);
+  const [stdin, setStdin] = useState<string>(() => {
+    const shared = decodeSnippetFromHash();
+    return shared ? shared.stdin : '';
+  });
+  const [loadedTopicName, setLoadedTopicName] = useState<string | null>(() => {
+    const shared = decodeSnippetFromHash();
+    return shared ? 'Shared snippet' : null;
+  });
+  const [isLoadingShare, setIsLoadingShare] = useState<boolean>(() =>
+    Boolean(parseSharedQueryId())
+  );
+  const [shareLoadError, setShareLoadError] = useState<string | null>(null);
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
   const [activeLegalDoc, setActiveLegalDoc] = useState<LegalDocKey | null>(null);
 
@@ -85,9 +110,58 @@ export default function App() {
     }
   }, [isDark]);
 
-  // Sync browser back/forward on #/learn/<id> routes
+  // Load shared snippet from ?s=<id> on initial load or popstate
+  useEffect(() => {
+    let cancelled = false;
+    const loadShortlinkIfPresent = async () => {
+      const shareId = parseSharedQueryId();
+      if (!shareId) return;
+      setIsLoadingShare(true);
+      setShareLoadError(null);
+      setActiveNav('compiler');
+      try {
+        const { fetchSharedSnippetById } = await import('./services/compiler');
+        const snippet = await fetchSharedSnippetById(shareId);
+        if (cancelled) return;
+        setCode(snippet.code);
+        setStandard(snippet.standard);
+        setStdin(snippet.stdin);
+        setLoadedTopicName('Shared snippet');
+      } catch (err) {
+        if (cancelled) return;
+        setShareLoadError(
+          err instanceof Error ? err.message : 'Unable to load shared snippet.'
+        );
+      } finally {
+        if (!cancelled) setIsLoadingShare(false);
+      }
+    };
+
+    loadShortlinkIfPresent();
+
+    const handlePopState = () => {
+      loadShortlinkIfPresent();
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  // Sync browser back/forward on #/learn/<id> and #share= routes
   useEffect(() => {
     const handleHashChange = () => {
+      const shared = decodeSnippetFromHash();
+      if (shared) {
+        setCode(shared.code);
+        setStandard(shared.standard);
+        setStdin(shared.stdin);
+        setLoadedTopicName('Shared snippet');
+        setShareLoadError(null);
+        setActiveNav('compiler');
+        return;
+      }
       const lessonFromHash = parseLearnHash();
       if (lessonFromHash) {
         setActiveLessonId(lessonFromHash);
@@ -137,6 +211,7 @@ export default function App() {
     setStandard(snippet.standard);
     setStdin(snippet.stdin);
     setLoadedTopicName(snippet.label);
+    setShareLoadError(null);
     setActiveNav('compiler');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -154,6 +229,7 @@ export default function App() {
     setStandard('c++20');
     setStdin('');
     setLoadedTopicName('Learn Example');
+    setShareLoadError(null);
     setActiveNav('compiler');
     window.location.hash = '#/';
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -164,6 +240,7 @@ export default function App() {
     setStandard('c++20');
     setStdin('');
     setLoadedTopicName(null);
+    setShareLoadError(null);
   };
 
   return (
@@ -210,6 +287,9 @@ export default function App() {
               stdin={stdin}
               onStdinChange={setStdin}
               loadedTopicName={loadedTopicName}
+              isLoadingShare={isLoadingShare}
+              shareLoadError={shareLoadError}
+              onDismissShareError={() => setShareLoadError(null)}
               onResetAll={handleResetAll}
             />
 

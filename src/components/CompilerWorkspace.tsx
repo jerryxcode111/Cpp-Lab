@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Ban,
@@ -6,19 +6,22 @@ import {
   CheckCircle2,
   Code2,
   Copy,
+  ExternalLink,
   Loader2,
   Play,
   RotateCcw,
   Share2,
   ShieldAlert,
+  X,
 } from 'lucide-react';
 import { CodeEditor } from './CodeEditor';
 import {
   CompileRunResult,
   CppStandard,
   MemoryCheckResult,
+  ShareLinkResult,
   compileAndRunCpp,
-  encodeSnippetToHash,
+  createShareLink,
   runMemorySanitizer,
 } from '../services/compiler';
 import { DEFAULT_CPP_CODE } from '../data/cppContent';
@@ -32,6 +35,9 @@ interface CompilerWorkspaceProps {
   stdin: string;
   onStdinChange: (next: string) => void;
   loadedTopicName: string | null;
+  isLoadingShare?: boolean;
+  shareLoadError?: string | null;
+  onDismissShareError?: () => void;
   onResetAll: () => void;
 }
 
@@ -53,6 +59,9 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
   stdin,
   onStdinChange,
   loadedTopicName,
+  isLoadingShare = false,
+  shareLoadError = null,
+  onDismissShareError,
   onResetAll,
 }) => {
   const [activeTab, setActiveTab] = useState<ConsoleTab>('output');
@@ -67,8 +76,21 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
     rawReport: '',
   });
   const [networkError, setNetworkError] = useState<string | null>(null);
-  const [shareCopied, setShareCopied] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareDialog, setShareDialog] = useState<ShareLinkResult | null>(null);
+  const [shareCopyStatus, setShareCopyStatus] = useState<'idle' | 'copied' | 'manual'>('idle');
   const [outputCopied, setOutputCopied] = useState(false);
+  const lastShareCacheRef = useRef<{ signature: string; result: ShareLinkResult } | null>(null);
+  const shareInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!shareDialog) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShareDialog(null);
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [shareDialog]);
 
   const lineCount = code.split('\n').length;
 
@@ -127,17 +149,67 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
     }
   };
 
-  const handleShare = async () => {
-    const hash = encodeSnippetToHash(code, standard);
-    const url = `${window.location.origin}${window.location.pathname}${hash}`;
-    window.history.replaceState(null, '', hash);
+  const copyTextSafely = async (text: string): Promise<boolean> => {
     try {
-      await navigator.clipboard.writeText(url);
-      setShareCopied(true);
-      window.setTimeout(() => setShareCopied(false), 2200);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
     } catch {
-      setShareCopied(true);
-      window.setTimeout(() => setShareCopied(false), 2200);
+      // Fall through to execCommand fallback
+    }
+    try {
+      const temp = document.createElement('textarea');
+      temp.value = text;
+      temp.setAttribute('readonly', '');
+      temp.style.position = 'fixed';
+      temp.style.opacity = '0';
+      document.body.appendChild(temp);
+      temp.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(temp);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleShare = async () => {
+    if (isSharing) return;
+    const signature = `${code}\0${standard}\0${stdin}`;
+    setIsSharing(true);
+
+    try {
+      let result: ShareLinkResult;
+      if (lastShareCacheRef.current?.signature === signature) {
+        result = lastShareCacheRef.current.result;
+      } else {
+        result = await createShareLink(code, standard, stdin);
+        lastShareCacheRef.current = { signature, result };
+      }
+
+      window.history.replaceState(null, '', result.relativePath);
+      setShareDialog(result);
+
+      const copied = await copyTextSafely(result.url);
+      setShareCopyStatus(copied ? 'copied' : 'manual');
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleCopyShareUrl = async () => {
+    if (!shareDialog) return;
+    const copied = await copyTextSafely(shareDialog.url);
+    if (copied) {
+      setShareCopyStatus('copied');
+      window.setTimeout(() => {
+        setShareCopyStatus((prev) => (prev === 'copied' ? 'idle' : prev));
+      }, 2200);
+    } else {
+      setShareCopyStatus('manual');
+      shareInputRef.current?.focus();
+      shareInputRef.current?.select();
     }
   };
 
@@ -152,8 +224,9 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
       rawReport: '',
     });
     setNetworkError(null);
+    setShareDialog(null);
     setActiveTab('output');
-    if (window.location.hash) {
+    if (window.location.hash || window.location.search.includes('s=')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
   };
@@ -243,12 +316,13 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
           <button
             type="button"
             onClick={handleShare}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            disabled={isSharing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-700 dark:text-slate-200 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
-            {shareCopied ? (
+            {isSharing ? (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Link Copied</span>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
+                <span>Sharing…</span>
               </>
             ) : (
               <>
@@ -269,6 +343,30 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Shared Link Loading / Error Notice */}
+      {isLoadingShare && (
+        <div className="mb-3 px-3.5 py-2 rounded-lg border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/30 text-sky-800 dark:text-sky-200 text-xs flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+          <span>Loading shared C++ snippet…</span>
+        </div>
+      )}
+
+      {shareLoadError && (
+        <div className="mb-3 px-3.5 py-2 rounded-lg border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between gap-3">
+          <span>{shareLoadError}</span>
+          {onDismissShareError && (
+            <button
+              type="button"
+              onClick={onDismissShareError}
+              aria-label="Dismiss error"
+              className="p-0.5 hover:opacity-80 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Dark Split-Screen Compiler Frame */}
       <div className="w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-[#0b1120] overflow-hidden shadow-sm">
@@ -557,6 +655,86 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Shareable Link Modal */}
+      {shareDialog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4"
+          onClick={() => setShareDialog(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2
+                id="share-dialog-title"
+                className="text-base font-bold text-slate-900 dark:text-white"
+              >
+                Share C++ Snippet
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShareDialog(null)}
+                aria-label="Close share dialog"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                ref={shareInputRef}
+                type="text"
+                readOnly
+                value={shareDialog.url}
+                onFocus={(e) => e.currentTarget.select()}
+                aria-label="Shareable link URL"
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono text-xs focus:outline-none focus:border-sky-500"
+              />
+              <button
+                type="button"
+                onClick={handleCopyShareUrl}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                {shareCopyStatus === 'copied' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {shareCopyStatus === 'manual'
+                  ? 'Select the link and press Ctrl+C / ⌘+C.'
+                  : ''}
+              </span>
+
+              <a
+                href={shareDialog.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#0284c7] dark:text-sky-400 hover:underline whitespace-nowrap shrink-0"
+              >
+                <span>Open in new tab</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

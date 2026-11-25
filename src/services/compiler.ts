@@ -271,8 +271,19 @@ export async function runMemorySanitizer(
   }
 }
 
-export function encodeSnippetToHash(code: string, standard: CppStandard): string {
-  const payload = JSON.stringify({ code, standard });
+export function encodeSnippetToHash(
+  code: string,
+  standard: CppStandard,
+  stdin?: string
+): string {
+  const payloadObj: { code: string; standard: CppStandard; stdin?: string } = {
+    code,
+    standard,
+  };
+  if (stdin && stdin.length > 0) {
+    payloadObj.stdin = stdin;
+  }
+  const payload = JSON.stringify(payloadObj);
   const bytes = new TextEncoder().encode(payload);
   let binary = '';
   for (let i = 0; i < bytes.length; i += 1) {
@@ -281,7 +292,11 @@ export function encodeSnippetToHash(code: string, standard: CppStandard): string
   return `#share=${encodeURIComponent(btoa(binary))}`;
 }
 
-export function decodeSnippetFromHash(): { code: string; standard: CppStandard } | null {
+export function decodeSnippetFromHash(): {
+  code: string;
+  standard: CppStandard;
+  stdin: string;
+} | null {
   try {
     const hash = window.location.hash;
     if (!hash || !hash.startsWith('#share=')) return null;
@@ -292,13 +307,151 @@ export function decodeSnippetFromHash(): { code: string; standard: CppStandard }
       bytes[i] = binary.charCodeAt(i);
     }
     const json = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(json) as { code?: string; standard?: string };
+    const parsed = JSON.parse(json) as { code?: string; standard?: string; stdin?: string };
     const validStandards: CppStandard[] = ['c++23', 'c++20', 'c++17', 'c++14', 'c++11'];
-    if (typeof parsed.code === 'string' && parsed.standard && validStandards.includes(parsed.standard as CppStandard)) {
-      return { code: parsed.code, standard: parsed.standard as CppStandard };
+    if (typeof parsed.code === 'string') {
+      const resolvedStandard =
+        parsed.standard && validStandards.includes(parsed.standard as CppStandard)
+          ? (parsed.standard as CppStandard)
+          : 'c++20';
+      return {
+        code: parsed.code,
+        standard: resolvedStandard,
+        stdin: typeof parsed.stdin === 'string' ? parsed.stdin : '',
+      };
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+export interface ShareLinkResult {
+  url: string;
+  relativePath: string;
+  shortId: string | null;
+  mode: 'short' | 'hash';
+}
+
+export async function createShareLink(
+  code: string,
+  standard: CppStandard,
+  stdin: string
+): Promise<ShareLinkResult> {
+  const basePath = `${window.location.origin}${window.location.pathname}`;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 7000);
+
+  try {
+    const optionsStr = `-std=${standard} -O2 -Wall -Wextra`;
+    const response = await fetch('https://godbolt.org/api/shortener', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessions: [
+          {
+            id: 1,
+            language: 'c++',
+            source: code,
+            compilers: [{ id: 'g142', options: optionsStr }],
+            executors: [
+              {
+                compiler: { id: 'g142', options: optionsStr },
+                stdin,
+              },
+            ],
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as { url?: string };
+      if (typeof data.url === 'string') {
+        const shortId = data.url.split('/').pop() || '';
+        if (/^[A-Za-z0-9_-]{4,32}$/.test(shortId)) {
+          const relativePath = `${window.location.pathname}?s=${encodeURIComponent(shortId)}`;
+          return {
+            url: `${basePath}?s=${encodeURIComponent(shortId)}`,
+            relativePath,
+            shortId,
+            mode: 'short',
+          };
+        }
+      }
+    }
+  } catch {
+    // Fall back to self-contained encoded permalink if shortener is unreachable
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+
+  const hash = encodeSnippetToHash(code, standard, stdin);
+  return {
+    url: `${basePath}${hash}`,
+    relativePath: `${window.location.pathname}${hash}`,
+    shortId: null,
+    mode: 'hash',
+  };
+}
+
+interface GodboltShortlinkSession {
+  source?: string;
+  compilers?: Array<{ options?: string }>;
+  executors?: Array<{ stdin?: string; compiler?: { options?: string } }>;
+}
+
+export async function fetchSharedSnippetById(shortId: string): Promise<{
+  code: string;
+  standard: CppStandard;
+  stdin: string;
+}> {
+  if (!/^[A-Za-z0-9_-]{4,32}$/.test(shortId)) {
+    throw new Error('Invalid share link ID.');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(
+      `https://godbolt.org/api/shortlinkinfo/${encodeURIComponent(shortId)}`,
+      {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        response.status === 404
+          ? 'Shared snippet not found or expired.'
+          : `Could not load shared snippet (HTTP ${response.status}).`
+      );
+    }
+
+    const data = (await response.json()) as { sessions?: GodboltShortlinkSession[] };
+    const session = data.sessions?.[0];
+    if (!session || typeof session.source !== 'string') {
+      throw new Error('Shared link did not contain C++ source code.');
+    }
+
+    const optionsText =
+      session.compilers?.[0]?.options || session.executors?.[0]?.compiler?.options || '';
+    const stdMatch = optionsText.match(/-std=(c\+\+(?:23|20|17|14|11))/);
+    const standard: CppStandard = stdMatch ? (stdMatch[1] as CppStandard) : 'c++20';
+    const stdin = typeof session.executors?.[0]?.stdin === 'string' ? session.executors[0].stdin : '';
+
+    return {
+      code: session.source,
+      standard,
+      stdin,
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
