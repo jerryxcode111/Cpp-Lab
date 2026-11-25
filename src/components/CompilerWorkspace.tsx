@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle,
   Ban,
   Check,
-  CheckCircle2,
   Code2,
   Copy,
   ExternalLink,
@@ -11,22 +9,17 @@ import {
   Play,
   RotateCcw,
   Share2,
-  ShieldAlert,
   X,
 } from 'lucide-react';
 import { CodeEditor } from './CodeEditor';
 import {
   CompileRunResult,
   CppStandard,
-  MemoryCheckResult,
   ShareLinkResult,
   compileAndRunCpp,
   createShareLink,
-  runMemorySanitizer,
 } from '../services/compiler';
 import { DEFAULT_CPP_CODE } from '../data/cppContent';
-
-export type ConsoleTab = 'output' | 'input' | 'errors' | 'memory';
 
 interface CompilerWorkspaceProps {
   code: string;
@@ -57,24 +50,15 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
   onCodeChange,
   standard,
   stdin,
-  onStdinChange,
+  onStdinChange: _onStdinChange,
   loadedTopicName,
   isLoadingShare = false,
   shareLoadError = null,
   onDismissShareError,
   onResetAll,
 }) => {
-  const [activeTab, setActiveTab] = useState<ConsoleTab>('output');
   const [isRunning, setIsRunning] = useState(false);
-  const [isCheckingMemory, setIsCheckingMemory] = useState(false);
   const [runResult, setRunResult] = useState<CompileRunResult | null>(INITIAL_OUTPUT);
-  const [memoryResult, setMemoryResult] = useState<MemoryCheckResult>({
-    status: 'idle',
-    leaksDetected: false,
-    ubDetected: false,
-    summary: '',
-    rawReport: '',
-  });
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [shareDialog, setShareDialog] = useState<ShareLinkResult | null>(null);
@@ -97,55 +81,19 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
   const handleRun = async () => {
     if (isRunning) return;
     setIsRunning(true);
-    setIsCheckingMemory(true);
     setNetworkError(null);
 
-    const standardRunPromise = compileAndRunCpp(code, standard, stdin);
-    const memoryCheckPromise = runMemorySanitizer(code, standard, stdin);
-
     try {
-      const result = await standardRunPromise;
+      const result = await compileAndRunCpp(code, standard, stdin);
       setRunResult(result);
-      if (result.hasCompileError) {
-        setActiveTab('errors');
-      } else if (activeTab === 'errors') {
-        setActiveTab('output');
-      }
     } catch (err) {
       setNetworkError(
         err instanceof Error
           ? err.message
           : 'Unable to reach compiler backend. Please try again.'
       );
-      setActiveTab('output');
     } finally {
       setIsRunning(false);
-    }
-
-    try {
-      const memRes = await memoryCheckPromise;
-      setMemoryResult(memRes);
-    } catch {
-      setMemoryResult({
-        status: 'unavailable',
-        leaksDetected: false,
-        ubDetected: false,
-        summary: 'Sanitizer check could not complete.',
-        rawReport: '',
-      });
-    } finally {
-      setIsCheckingMemory(false);
-    }
-  };
-
-  const handleRunMemoryOnly = async () => {
-    if (isCheckingMemory) return;
-    setIsCheckingMemory(true);
-    try {
-      const memRes = await runMemorySanitizer(code, standard, stdin);
-      setMemoryResult(memRes);
-    } finally {
-      setIsCheckingMemory(false);
     }
   };
 
@@ -216,70 +164,29 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
   const handleReset = () => {
     onResetAll();
     setRunResult(INITIAL_OUTPUT);
-    setMemoryResult({
-      status: 'idle',
-      leaksDetected: false,
-      ubDetected: false,
-      summary: '',
-      rawReport: '',
-    });
     setNetworkError(null);
     setShareDialog(null);
-    setActiveTab('output');
     if (window.location.hash || window.location.search.includes('s=')) {
       window.history.replaceState(null, '', window.location.pathname);
     }
   };
 
   const handleClearConsole = () => {
-    if (activeTab === 'input') {
-      onStdinChange('');
-      return;
-    }
-    if (activeTab === 'errors') {
-      setRunResult((prev) =>
-        prev ? { ...prev, compileErrors: '', stderr: '', hasCompileError: false } : null
-      );
-      return;
-    }
-    if (activeTab === 'memory') {
-      setMemoryResult({
-        status: 'idle',
-        leaksDetected: false,
-        ubDetected: false,
-        summary: '',
-        rawReport: '',
-      });
-      return;
-    }
     setRunResult(null);
     setNetworkError(null);
   };
 
   const handleCopyConsole = async () => {
-    let textToCopy = '';
-    if (activeTab === 'output') {
-      textToCopy = runResult?.stdout || '';
-    } else if (activeTab === 'input') {
-      textToCopy = stdin;
-    } else if (activeTab === 'errors') {
-      textToCopy = [runResult?.compileErrors, runResult?.stderr].filter(Boolean).join('\n');
-    } else {
-      textToCopy = memoryResult.rawReport || memoryResult.summary;
-    }
+    const textToCopy = runResult?.hasCompileError
+      ? [runResult.compileErrors, runResult.stderr].filter(Boolean).join('\n')
+      : runResult?.stdout || '';
     if (!textToCopy) return;
-    try {
-      await navigator.clipboard.writeText(textToCopy);
+    const copied = await copyTextSafely(textToCopy);
+    if (copied) {
       setOutputCopied(true);
       window.setTimeout(() => setOutputCopied(false), 1800);
-    } catch {
-      // Ignore clipboard failures
     }
   };
-
-  const hasErrorsOrWarnings = Boolean(
-    runResult && (runResult.hasCompileError || runResult.compileErrors || runResult.stderr)
-  );
 
   return (
     <section aria-label="Online C++ Compiler Workspace" className="w-full">
@@ -385,78 +292,12 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
             <CodeEditor code={code} onChange={onCodeChange} onRun={handleRun} />
           </div>
 
-          {/* Right Pane: Output / Input / Errors / Memory Check Console */}
+          {/* Right Pane: Output Console */}
           <div className="flex flex-col bg-[#0b1120]">
-            {/* Console Sub-header Tabs */}
+            {/* Console Sub-header */}
             <div className="h-10 bg-[#0f172a] border-b border-slate-800 px-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('output')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                    activeTab === 'output'
-                      ? 'bg-[#1e293b] text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Output
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('input')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'input'
-                      ? 'bg-[#1e293b] text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span>Input</span>
-                  {stdin.trim().length > 0 && (
-                    <span className="text-[10px] font-mono text-sky-400">
-                      (set)
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('errors')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'errors'
-                      ? 'bg-[#1e293b] text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span>Errors</span>
-                  {hasErrorsOrWarnings && (
-                    <span
-                      className={`text-[10px] font-mono ${
-                        runResult?.hasCompileError ? 'text-rose-400' : 'text-amber-400'
-                      }`}
-                    >
-                      !
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('memory')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'memory'
-                      ? 'bg-[#1e293b] text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span>Memory Check</span>
-                  {memoryResult.status === 'issue' && (
-                    <span className="text-[10px] font-mono text-rose-400">!</span>
-                  )}
-                  {memoryResult.status === 'clean' && (
-                    <span className="text-[10px] font-mono text-emerald-400">✓</span>
-                  )}
-                </button>
+              <div className="px-2.5 py-1 rounded bg-[#1e293b] text-white text-xs font-medium">
+                Output
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
@@ -464,7 +305,7 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
                   type="button"
                   onClick={handleClearConsole}
                   className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer px-1.5 py-1"
-                  title="Clear current tab"
+                  title="Clear output"
                 >
                   <Ban className="w-3 h-3" />
                   <span className="hidden sm:inline">Clear</span>
@@ -492,157 +333,53 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
 
             {/* Console Body */}
             <div className="h-[340px] sm:h-[380px] p-4 overflow-auto editor-scroll font-mono text-[13px] leading-[22px]">
-              {activeTab === 'output' && (
-                <div className="h-full flex flex-col justify-between">
-                  {isRunning ? (
-                    <div className="text-slate-400 flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
-                      <span>
-                        Compiling and running with {`g++ -std=${standard}`}...
-                      </span>
-                    </div>
-                  ) : networkError ? (
-                    <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-950/30 text-rose-300 text-xs">
-                      <div className="font-semibold mb-1">Compiler Request Failed</div>
-                      <div>{networkError}</div>
-                    </div>
-                  ) : !runResult ? (
-                    <div className="text-slate-500">
-                      Console cleared. Press Run (Ctrl+Enter) to execute main.cpp.
-                    </div>
-                  ) : runResult.hasCompileError ? (
-                    <div className="space-y-3">
-                      <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-950/30 text-rose-300 text-xs">
-                        Compilation failed with exit code {runResult.exitCode ?? 1}.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('errors')}
-                        className="text-xs text-sky-400 hover:underline cursor-pointer"
-                      >
-                        Inspect compiler errors →
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <pre className="text-slate-100 whitespace-pre-wrap break-words m-0">
-                        {runResult.stdout || '(No standard output)'}
-                      </pre>
-
-                      {runResult.stderr && (
-                        <pre className="text-amber-300/90 whitespace-pre-wrap break-words text-xs m-0 pt-2 border-t border-slate-800">
-                          {runResult.stderr}
-                        </pre>
-                      )}
-
-                      <div className="text-slate-500 text-xs pt-2 tabular-nums">
-                        Program finished with exit code {runResult.exitCode ?? 0}
-                        {runResult.execTimeMs !== null ? ` · ${runResult.execTimeMs} ms` : ''}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'input' && (
-                <div className="h-full flex flex-col">
-                  <div className="text-xs text-slate-400 mb-2">
-                    Standard Input (stdin) — passed to <code className="text-sky-400">std::cin</code> on Run:
+              <div className="h-full flex flex-col justify-between">
+                {isRunning ? (
+                  <div className="text-slate-400 flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                    <span>
+                      Compiling and running with {`g++ -std=${standard}`}...
+                    </span>
                   </div>
-                  <textarea
-                    value={stdin}
-                    onChange={(e) => onStdinChange(e.target.value)}
-                    placeholder="Enter input values separated by spaces or new lines..."
-                    aria-label="Standard input (stdin)"
-                    className="flex-1 w-full bg-[#0f172a] border border-slate-800 rounded-lg p-3 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500 resize-none font-mono text-[13px] leading-[20px]"
-                  />
-                </div>
-              )}
-
-              {activeTab === 'errors' && (
-                <div>
-                  {!runResult || (!runResult.compileErrors && !runResult.stderr) ? (
-                    <div className="flex items-center gap-2 text-emerald-400 text-xs">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>No compiler errors or warnings detected.</span>
+                ) : networkError ? (
+                  <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-950/30 text-rose-300 text-xs">
+                    <div className="font-semibold mb-1">Compiler Request Failed</div>
+                    <div>{networkError}</div>
+                  </div>
+                ) : !runResult ? (
+                  <div className="text-slate-500">
+                    Console cleared. Press Run (Ctrl+Enter) to execute main.cpp.
+                  </div>
+                ) : runResult.hasCompileError ? (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-950/30 text-rose-300 text-xs">
+                      Compilation failed with exit code {runResult.exitCode ?? 1}.
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-semibold text-rose-400">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>
-                          {runResult.hasCompileError ? 'Compilation Errors' : 'Compiler Warnings / Stderr'}
-                        </span>
-                      </div>
-                      <pre className="text-xs text-rose-200 bg-[#0f172a] border border-slate-800 rounded-lg p-3 whitespace-pre-wrap break-words overflow-x-auto leading-5">
+                    {(runResult.compileErrors || runResult.stderr) && (
+                      <pre className="text-xs text-rose-200 bg-[#0f172a] border border-slate-800 rounded-lg p-3 whitespace-pre-wrap break-words overflow-x-auto leading-5 m-0">
                         {[runResult.compileErrors, runResult.stderr].filter(Boolean).join('\n\n')}
                       </pre>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'memory' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-400 font-semibold">
-                      AddressSanitizer &amp; UBSan Analysis
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleRunMemoryOnly}
-                      disabled={isCheckingMemory}
-                      className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {isCheckingMemory ? 'Checking...' : 'Run Sanitizer'}
-                    </button>
+                    )}
                   </div>
+                ) : (
+                  <div className="space-y-4">
+                    <pre className="text-slate-100 whitespace-pre-wrap break-words m-0">
+                      {runResult.stdout || '(No standard output)'}
+                    </pre>
 
-                  {isCheckingMemory ? (
-                    <div className="text-slate-400 text-xs flex items-center gap-2 py-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
-                      <span>Running -fsanitize=address,undefined...</span>
+                    {runResult.stderr && (
+                      <pre className="text-amber-300/90 whitespace-pre-wrap break-words text-xs m-0 pt-2 border-t border-slate-800">
+                        {runResult.stderr}
+                      </pre>
+                    )}
+
+                    <div className="text-slate-500 text-xs pt-2 tabular-nums">
+                      Program finished with exit code {runResult.exitCode ?? 0}
+                      {runResult.execTimeMs !== null ? ` · ${runResult.execTimeMs} ms` : ''}
                     </div>
-                  ) : memoryResult.status === 'idle' ? (
-                    <div className="text-slate-400 text-xs leading-relaxed border border-slate-800 rounded-lg p-3 bg-[#0f172a]">
-                      Click Run (or Run Sanitizer) to inspect heap allocations, memory leaks, and undefined behavior with GCC AddressSanitizer &amp; UBSan.
-                    </div>
-                  ) : memoryResult.status === 'clean' ? (
-                    <div className="space-y-2">
-                      <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-emerald-300 text-xs flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                        <div>
-                          <div className="font-semibold">ASan &amp; LeakSanitizer Clean</div>
-                          <div className="text-emerald-200/80 mt-0.5">{memoryResult.summary}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : memoryResult.status === 'issue' ? (
-                    <div className="space-y-2">
-                      <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-950/30 text-rose-300 text-xs flex items-start gap-2">
-                        <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-                        <div>
-                          <div className="font-semibold">
-                            {memoryResult.leaksDetected
-                              ? 'Memory / LeakSanitizer Issue Detected'
-                              : 'Undefined Behavior Detected'}
-                          </div>
-                          <div className="text-rose-200/90 mt-0.5">{memoryResult.summary}</div>
-                        </div>
-                      </div>
-                      {memoryResult.rawReport && (
-                        <pre className="text-[11px] leading-5 text-slate-200 bg-[#05080f] border border-slate-800 rounded-lg p-3 whitespace-pre-wrap break-words overflow-x-auto">
-                          {memoryResult.rawReport}
-                        </pre>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="p-3 rounded-lg border border-slate-800 bg-[#0f172a] text-amber-300 text-xs">
-                      {memoryResult.summary}
-                    </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
