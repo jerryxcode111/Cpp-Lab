@@ -207,7 +207,6 @@ export default function App() {
                 if (loadedTopicName) setLoadedTopicName(null);
               }}
               standard={standard}
-              onStandardChange={setStandard}
               stdin={stdin}
               onStdinChange={setStdin}
               loadedTopicName={loadedTopicName}
@@ -308,8 +307,8 @@ export default function App() {
                     sandboxed environment executes your code instantly.
                   </p>
                   <p>
-                    Equipped with GCC 14 backends, you can toggle between standards from ISO
-                    C++11 up to ISO C++23. Standard input (stdin), compiler warning flags,
+                    Equipped with GCC 14 backends running ISO C++20 by default, your programs
+                    compile with strict warning diagnostics. Standard input (stdin),
                     AddressSanitizer memory checks, and quick-share permalinks allow you to run
                     and debug algorithmic problems or share working examples with peers in seconds.
                   </p>
@@ -332,11 +331,7 @@ export default function App() {
                       {SUPPORTED_STANDARDS.map((row) => (
                         <tr
                           key={row.value}
-                          onClick={() => {
-                            setStandard(row.value);
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
-                          className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
+                          className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
                         >
                           <td className="py-2.5 px-4 font-mono font-semibold text-[#0284c7] dark:text-sky-400 whitespace-nowrap">
                             {row.standard}

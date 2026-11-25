@@ -204,7 +204,7 @@ export const FAQ_ITEMS: FaqItem[] = [
     id: 'standards',
     question: 'Which C++ standard does this compiler support?',
     answer:
-      'cpplab.tech runs GCC 14.2 and supports switching between ISO C++11, C++14, C++17, C++20, and C++23 using the standard selector above the editor, with -Wall and -Wextra diagnostics enabled by default.',
+      'cpplab.tech compiles with GCC 14.2 using modern ISO C++20 by default (supporting C++11 through C++20 STL features, Ranges, Concepts, and Lambdas), with -Wall and -Wextra diagnostics enabled automatically.',
   },
   {
     id: 'install',

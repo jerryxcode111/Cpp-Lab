@@ -29,7 +29,6 @@ interface CompilerWorkspaceProps {
   code: string;
   onCodeChange: (next: string) => void;
   standard: CppStandard;
-  onStandardChange: (next: CppStandard) => void;
   stdin: string;
   onStdinChange: (next: string) => void;
   loadedTopicName: string | null;
@@ -51,7 +50,6 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
   code,
   onCodeChange,
   standard,
-  onStandardChange,
   stdin,
   onStdinChange,
   loadedTopicName,
@@ -283,22 +281,6 @@ export const CompilerWorkspace: React.FC<CompilerWorkspaceProps> = ({
                 <Code2 className="w-3.5 h-3.5 text-sky-400" />
                 <span>main.cpp</span>
               </div>
-
-              <label className="flex items-center gap-1.5 text-xs font-mono text-slate-400">
-                <span className="sr-only">Select C++ Standard</span>
-                <select
-                  value={standard}
-                  onChange={(e) => onStandardChange(e.target.value as CppStandard)}
-                  aria-label="C++ standard version"
-                  className="bg-[#1e293b] text-slate-200 border border-slate-700 rounded px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-sky-500 cursor-pointer"
-                >
-                  <option value="c++23">C++23</option>
-                  <option value="c++20">C++20</option>
-                  <option value="c++17">C++17</option>
-                  <option value="c++14">C++14</option>
-                  <option value="c++11">C++11</option>
-                </select>
-              </label>
             </div>
 
             {/* Editor Area */}
